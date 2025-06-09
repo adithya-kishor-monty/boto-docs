@@ -1,0 +1,47 @@
+name: Monthly Sync 'docs' Folder from boto3 Repo
+
+on:
+  schedule:
+    - cron: '0 0 1 * *'  # Run monthly on the 1st at 00:00 UTC
+  workflow_dispatch:      # Manual trigger allowed
+
+jobs:
+  sync-docs:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repo-A
+        uses: actions/checkout@v4
+
+      - name: Cache existing 'docs' folder for comparison
+        run: |
+          mkdir -p old-docs
+          cp -r docs/* old-docs/ || true
+
+      - name: Clone boto3 Repo-B
+        run: |
+          git clone --depth 1 https://github.com/boto/boto3.git repo-boto3
+
+      - name: Compare 'docs' folder contents
+        id: diffcheck
+        run: |
+          if diff -qr repo-boto3/docs old-docs; then
+            echo "changed=false" >> $GITHUB_OUTPUT
+          else
+            echo "changed=true" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Copy updated 'docs' folder from boto3
+        if: steps.diffcheck.outputs.changed == 'true'
+        run: |
+          rm -rf docs/*
+          cp -r repo-boto3/docs/* docs/
+
+      - name: Commit and push if 'docs' changed
+        if: steps.diffcheck.outputs.changed == 'true'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add docs
+          git commit -m "Monthly sync: updated docs folder from boto3"
+          git push
