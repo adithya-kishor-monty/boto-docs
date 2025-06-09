@@ -2,8 +2,8 @@ name: Monthly Sync 'docs' Folder from boto3 Repo
 
 on:
   schedule:
-    - cron: '0 0 1 * *'  # Run monthly on the 1st at 00:00 UTC
-  workflow_dispatch:      # Manual trigger allowed
+    - cron: '0 0 1 * *'  # Run on the 1st of every month at 00:00 UTC
+  workflow_dispatch:      # Allow manual triggering
 
 jobs:
   sync-docs:
@@ -13,35 +13,47 @@ jobs:
       - name: Checkout Repo-A
         uses: actions/checkout@v4
 
-      - name: Cache existing 'docs' folder for comparison
+      - name: Check if 'docs' folder exists and back it up
         run: |
-          mkdir -p old-docs
-          cp -r docs/* old-docs/ || true
+          if [ -d docs ]; then
+            echo "Docs folder exists. Backing it up for comparison."
+            mkdir old-docs
+            cp -r docs/* old-docs/ || true
+          else
+            echo "Docs folder does not exist. Initial sync assumed."
+            echo "initial_sync=true" >> $GITHUB_ENV
+          fi
 
       - name: Clone boto3 Repo-B
         run: |
           git clone --depth 1 https://github.com/boto/boto3.git repo-boto3
 
-      - name: Compare 'docs' folder contents
+      - name: Compare folders (skip if initial run)
         id: diffcheck
         run: |
-          if diff -qr repo-boto3/docs old-docs; then
+          if [ "$initial_sync" = "true" ]; then
+            echo "First time sync. Proceeding with update."
+            echo "changed=true" >> $GITHUB_OUTPUT
+          elif diff -qr repo-boto3/docs old-docs; then
+            echo "No changes in docs folder."
             echo "changed=false" >> $GITHUB_OUTPUT
           else
+            echo "Docs folder has changed."
             echo "changed=true" >> $GITHUB_OUTPUT
           fi
 
       - name: Copy updated 'docs' folder from boto3
         if: steps.diffcheck.outputs.changed == 'true'
         run: |
-          rm -rf docs/*
+          rm -rf docs
+          mkdir -p docs
           cp -r repo-boto3/docs/* docs/
 
-      - name: Commit and push if 'docs' changed
+      - name: Commit and push updated 'docs' folder
         if: steps.diffcheck.outputs.changed == 'true'
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add docs
-          git commit -m "Monthly sync: updated docs folder from boto3"
+          git commit -m "Sync: updated docs folder from boto3"
           git push
